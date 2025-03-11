@@ -9,11 +9,13 @@
         body { text-align: center; font-family: Arial, sans-serif; background-color: white; color: black; }
         h1 { margin-top: 20px; }
         model-viewer { width: 100%; height: 500px; background-color: #f8f8f8; }
+        button { padding: 10px 20px; font-size: 16px; margin-top: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
     <h1>Tap below to try the ring in AR</h1>
     <model-viewer 
+        id="ringViewer"
         src="https://modelviewer.dev/shared-assets/models/diamond_ring.glb" 
         ar 
         ar-modes="webxr scene-viewer quick-look" 
@@ -21,5 +23,18 @@
         auto-rotate 
         shadow-intensity="1">
     </model-viewer>
+    <br>
+    <button onclick="startAR()">Start AR</button>
+    
+    <script>
+        function startAR() {
+            let viewer = document.getElementById('ringViewer');
+            if (viewer.canActivateAR) {
+                viewer.activateAR();
+            } else {
+                alert('AR is not supported on this device or browser. Try using Chrome on Android or Safari on iOS.');
+            }
+        }
+    </script>
 </body>
 </html>
