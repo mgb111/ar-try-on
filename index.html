@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Ring Try-On</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <style>
+        body { margin: 0; overflow: hidden; text-align: center; font-family: Arial, sans-serif; }
+        h1 { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color: white; background: rgba(0, 0, 0, 0.5); padding: 10px 20px; border-radius: 10px; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <h1>Tanishq by Titan</h1>
+    <video id="video" autoplay playsinline></video>
+    <script>
+        let scene, camera, renderer, ringModel;
+        async function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+            scene.add(light);
+
+            const loader = new THREE.GLTFLoader();
+            loader.load('ring_model.glb', function(gltf) {
+                ringModel = gltf.scene;
+                ringModel.scale.set(0.02, 0.02, 0.02);
+                scene.add(ringModel);
+            });
+
+            camera.position.z = 2;
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        async function setupHandTracking() {
+            const video = document.getElementById("video");
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            const detector = await handPoseDetection.createDetector(handPoseDetection.SupportedModels.MediaPipeHands, {
+                runtime: 'mediapipe',
+                modelType: 'full'
+            });
+
+            async function detect() {
+                const hands = await detector.estimateHands(video);
+                if (hands.length > 0) {
+                    const indexFingerTip = hands[0].keypoints[8];
+                    if (ringModel) {
+                        ringModel.position.set((indexFingerTip.x / window.innerWidth) * 2 - 1, -(indexFingerTip.y / window.innerHeight) * 2 + 1, -1);
+                    }
+                }
+                requestAnimationFrame(detect);
+            }
+            detect();
+        }
+
+        init();
+        setupHandTracking();
+    </script>
+</body>
+</html>
