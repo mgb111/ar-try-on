@@ -40,9 +40,10 @@
                 scene.add(new THREE.AmbientLight(0xffffff, 1));
 
                 const loader = new THREE.GLTFLoader();
-                loader.load('https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb', (gltf) => {
+                loader.load('https://modelviewer.dev/shared-assets/models/diamond_ring.glb', (gltf) => {
                     ringModel = gltf.scene;
-                    ringModel.scale.set(0.05, 0.05, 0.05);
+                    ringModel.scale.set(0.03, 0.03, 0.03);
+                    ringModel.position.set(0, 0, -0.1);
                     scene.add(ringModel);
                 }, undefined, (error) => {
                     console.error('Error loading model:', error);
