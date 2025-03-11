@@ -1,71 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AR Ring Try-On</title>
-  <style>
-    body { margin: 0; }
-    canvas { display: block; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple AR Ring Try-On</title>
 </head>
 <body>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.146/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.146/examples/js/loaders/GLTFLoader.js"></script>
-  <script>
-    let camera, scene, renderer, ring;
-
-    init();
-    animate();
-
-    function init() {
-      // Set up the scene
-      scene = new THREE.Scene();
-
-      // Set up the camera
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.set(0, 0, 5);
-
-      // Set up the renderer
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true; // Enable WebXR
-      document.body.appendChild(renderer.domElement);
-
-      // Add lighting
-      const light = new THREE.DirectionalLight(0xffffff, 1);
-      light.position.set(5, 5, 5).normalize();
-      scene.add(light);
-
-      // Load the 3D ring model
-      const loader = new THREE.GLTFLoader();
-      loader.load(
-        'https://cdn.glitch.global/your-ring-model.glb', // Replace with your GLB file URL
-        function (gltf) {
-          ring = gltf.scene;
-          ring.scale.set(0.1, 0.1, 0.1); // Scale the ring
-          scene.add(ring);
-        },
-        undefined,
-        function (error) {
-          console.error('Error loading 3D model:', error);
-        }
-      );
-
-      // Add AR button
-      document.body.appendChild(THREE.XRButton.createButton(renderer));
-    }
-
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render() {
-      if (ring) {
-        ring.rotation.y += 0.01; // Rotate the ring
-      }
-      renderer.render(scene, camera);
-    }
-  </script>
+    <h1>Tap below to try the AR Ring</h1>
+    <a rel="ar" href="https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/8/89/3D_button_icon.svg" alt="Try AR" width="100">
+    </a>
 </body>
 </html>
