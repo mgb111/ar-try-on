@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebXR AR Ring Try-On</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@webxr-input-profiles/motion-controllers"></script>
     <script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/GLTFLoader.js"></script>
     <style>
         body { margin: 0; overflow: hidden; text-align: center; font-family: Arial, sans-serif; background-color: black; color: white; }
@@ -26,14 +25,14 @@
             }
 
             try {
-                xrSession = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hand-tracking'] });
+                xrSession = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
                 const gl = document.createElement('canvas').getContext('webgl', { xrCompatible: true });
                 renderer = new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true, context: gl });
                 renderer.xr.enabled = true;
                 document.body.appendChild(renderer.domElement);
 
                 xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, gl) });
-                xrRefSpace = await xrSession.requestReferenceSpace('local');
+                xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
 
                 scene = new THREE.Scene();
                 camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
@@ -43,24 +42,15 @@
                 loader.load('https://modelviewer.dev/shared-assets/models/diamond_ring.glb', (gltf) => {
                     ringModel = gltf.scene;
                     ringModel.scale.set(0.03, 0.03, 0.03);
-                    ringModel.position.set(0, 0, -0.1);
+                    ringModel.position.set(0, -0.2, -0.5);
                     scene.add(ringModel);
                 }, undefined, (error) => {
                     console.error('Error loading model:', error);
                 });
 
                 function render(time, frame) {
-                    if (ringModel && frame) {
-                        let handInput = xrSession.inputSources.find(source => source.hand);
-                        if (handInput && handInput.hand) {
-                            let indexFingerTip = handInput.hand.get("index-finger-tip");
-                            if (indexFingerTip) {
-                                let tipPose = frame.getPose(indexFingerTip, xrRefSpace);
-                                if (tipPose) {
-                                    ringModel.position.set(tipPose.transform.position.x, tipPose.transform.position.y, tipPose.transform.position.z);
-                                }
-                            }
-                        }
+                    if (ringModel) {
+                        ringModel.rotation.y += 0.01;
                     }
                     renderer.render(scene, camera);
                     xrSession.requestAnimationFrame(render);
@@ -68,7 +58,7 @@
                 xrSession.requestAnimationFrame(render);
             } catch (err) {
                 console.error('Session start error:', err);
-                alert('Failed to start AR session. Ensure your device supports WebXR and hand tracking.');
+                alert('Failed to start AR session. Please use a WebXR-compatible device and browser.');
             }
         }
 
