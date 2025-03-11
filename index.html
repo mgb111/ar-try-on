@@ -3,12 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple AR Ring Try-On</title>
+    <title>WebXR AR Ring Try-On</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@webxr-input-profiles/motion-controllers"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; text-align: center; font-family: Arial, sans-serif; background-color: black; color: white; }
+        h1 { margin-top: 20px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; margin-top: 20px; }
+    </style>
 </head>
 <body>
-    <h1>Tap below to try the AR Ring</h1>
-    <a rel="ar" href="https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/8/89/3D_button_icon.svg" alt="Try AR" width="100">
-    </a>
+    <h1>Tap below to start AR Ring Try-On</h1>
+    <button id="startAR">Start AR</button>
+    <script>
+        let scene, camera, renderer, ringModel;
+
+        async function startAR() {
+            if (!navigator.xr) {
+                alert('WebXR not supported on this device. Please use an AR-enabled browser.');
+                return;
+            }
+
+            try {
+                const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local', 'hit-test'] });
+                const gl = document.createElement('canvas').getContext('webgl', { xrCompatible: true });
+                renderer = new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true, context: gl });
+                renderer.xr.enabled = true;
+                document.body.appendChild(renderer.domElement);
+
+                session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+                const referenceSpace = await session.requestReferenceSpace('local');
+
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+                scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+                const loader = new THREE.GLTFLoader();
+                loader.load('https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb', (gltf) => {
+                    ringModel = gltf.scene;
+                    ringModel.scale.set(0.05, 0.05, 0.05);
+                    scene.add(ringModel);
+                }, undefined, (error) => {
+                    console.error('Error loading model:', error);
+                });
+
+                function render(time, frame) {
+                    if (ringModel && frame) {
+                        let viewerPose = frame.getViewerPose(referenceSpace);
+                        if (viewerPose) {
+                            let position = viewerPose.transform.position;
+                            ringModel.position.set(position.x, position.y - 0.1, position.z - 0.3);
+                        }
+                    }
+                    renderer.render(scene, camera);
+                    session.requestAnimationFrame(render);
+                }
+                session.requestAnimationFrame(render);
+            } catch (err) {
+                console.error('Session start error:', err);
+                alert('Failed to start AR session. Ensure your device supports WebXR and camera permissions are granted.');
+            }
+        }
+
+        document.getElementById('startAR').addEventListener('click', startAR);
+    </script>
 </body>
 </html>
