@@ -17,7 +17,7 @@
     <h1>Tap below to start AR Ring Try-On</h1>
     <button id="startAR">Start AR</button>
     <script>
-        let scene, camera, renderer, ringModel;
+        let scene, camera, renderer, ringModel, xrSession, xrRefSpace;
 
         async function startAR() {
             if (!navigator.xr) {
@@ -26,14 +26,14 @@
             }
 
             try {
-                const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local', 'hit-test'] });
+                xrSession = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hand-tracking'] });
                 const gl = document.createElement('canvas').getContext('webgl', { xrCompatible: true });
                 renderer = new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true, context: gl });
                 renderer.xr.enabled = true;
                 document.body.appendChild(renderer.domElement);
 
-                session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
-                const referenceSpace = await session.requestReferenceSpace('local');
+                xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, gl) });
+                xrRefSpace = await xrSession.requestReferenceSpace('local');
 
                 scene = new THREE.Scene();
                 camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
@@ -50,19 +50,24 @@
 
                 function render(time, frame) {
                     if (ringModel && frame) {
-                        let viewerPose = frame.getViewerPose(referenceSpace);
-                        if (viewerPose) {
-                            let position = viewerPose.transform.position;
-                            ringModel.position.set(position.x, position.y - 0.1, position.z - 0.3);
+                        let handInput = xrSession.inputSources.find(source => source.hand);
+                        if (handInput && handInput.hand) {
+                            let indexFingerTip = handInput.hand.get("index-finger-tip");
+                            if (indexFingerTip) {
+                                let tipPose = frame.getPose(indexFingerTip, xrRefSpace);
+                                if (tipPose) {
+                                    ringModel.position.set(tipPose.transform.position.x, tipPose.transform.position.y, tipPose.transform.position.z);
+                                }
+                            }
                         }
                     }
                     renderer.render(scene, camera);
-                    session.requestAnimationFrame(render);
+                    xrSession.requestAnimationFrame(render);
                 }
-                session.requestAnimationFrame(render);
+                xrSession.requestAnimationFrame(render);
             } catch (err) {
                 console.error('Session start error:', err);
-                alert('Failed to start AR session. Ensure your device supports WebXR and camera permissions are granted.');
+                alert('Failed to start AR session. Ensure your device supports WebXR and hand tracking.');
             }
         }
 
