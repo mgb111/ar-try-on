@@ -2,282 +2,417 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>AR Ring Try-On</title>
     <style>
-        body {
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
             overflow: hidden;
             font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            touch-action: none;
         }
         
-        #container {
-            position: relative;
+        #ui-container {
+            position: fixed;
             width: 100%;
-            height: 100vh;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
         }
         
-        #startButton {
+        #canvas {
             position: absolute;
-            bottom: 20px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 100;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        #start-button {
+            position: fixed;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
-            padding: 12px 24px;
+            padding: 15px 30px;
             background-color: #4285f4;
             color: white;
             border: none;
-            border-radius: 4px;
-            font-size: 16px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
             cursor: pointer;
-            z-index: 100;
+            z-index: 20;
+            pointer-events: auto;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         
         #instructions {
-            position: absolute;
+            position: fixed;
             top: 20px;
             left: 0;
             right: 0;
             text-align: center;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(0,0,0,0.6);
             color: white;
-            padding: 10px;
-            font-size: 14px;
-            z-index: 100;
+            padding: 12px;
+            font-size: 16px;
+            z-index: 20;
         }
         
-        #loading {
-            position: absolute;
-            top: 0;
+        #ring-controls {
+            position: fixed;
+            bottom: 100px;
             left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            font-size: 20px;
-            z-index: 200;
-        }
-        
-        #arNotSupported {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.8);
+            right: 0;
             display: none;
             justify-content: center;
-            align-items: center;
+            gap: 10px;
+            z-index: 20;
+        }
+        
+        .control-button {
+            padding: 10px 20px;
+            background-color: rgba(0,0,0,0.6);
             color: white;
-            font-size: 20px;
-            text-align: center;
-            padding: 20px;
-            box-sizing: border-box;
-            z-index: 300;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            pointer-events: auto;
         }
     </style>
 </head>
 <body>
-    <div id="container">
-        <button id="startButton">Start AR Ring Try-On</button>
-        <div id="instructions">Point your camera at your finger and tap to place the ring</div>
-        <div id="loading">Loading resources...</div>
-        <div id="arNotSupported">
-            <p>Sorry, AR is not supported on your device or browser.</p>
-            <p>Please try using a recent version of Chrome or Safari on a compatible device.</p>
+    <canvas id="canvas"></canvas>
+    
+    <div id="ui-container">
+        <div id="instructions">Point camera at your finger and tap to place the ring</div>
+        <button id="start-button">Try Ring On</button>
+        
+        <div id="ring-controls">
+            <button class="control-button" id="rotate-button">Rotate Ring</button>
+            <button class="control-button" id="resize-button">Resize Ring</button>
         </div>
     </div>
+    
+    <div id="loading-screen" class="overlay">
+        <h2>Loading AR Ring Try-On</h2>
+        <p>Please wait while we prepare your experience...</p>
+    </div>
+    
+    <div id="not-supported" class="overlay" style="display: none;">
+        <h2>AR Not Supported</h2>
+        <p>Sorry, AR is not supported on your device or browser.</p>
+        <p>Try using the latest Chrome on Android or Safari on iOS.</p>
+    </div>
+    
+    <div id="permission-denied" class="overlay" style="display: none;">
+        <h2>Camera Access Required</h2>
+        <p>This AR experience needs camera access to work.</p>
+        <p>Please allow camera access and reload the page.</p>
+    </div>
 
-    <!-- Load Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
-
+    <!-- Load libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsartoolkit5/artoolkit.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"></script>
+    
     <script>
-        const container = document.getElementById('container');
-        const startButton = document.getElementById('startButton');
-        const instructions = document.getElementById('instructions');
-        const loadingElement = document.getElementById('loading');
-        const arNotSupportedElement = document.getElementById('arNotSupported');
+        // Main variables
+        let scene, camera, renderer;
+        let ring, finger;
+        let videoElement;
+        let arReady = false;
+        let ringPlaced = false;
+        let isResizing = false;
+        let isRotating = false;
+        let fingerPosition = { x: 0, y: 0, z: -0.15 };
+        let ringSize = 0.02;
+        let ringRotation = 0;
         
-        let camera, scene, renderer;
-        let controller;
-        let ringModel;
-        let reticle;
-        let isRingPlaced = false;
+        // DOM Elements
+        const canvas = document.getElementById('canvas');
+        const startButton = document.getElementById('start-button');
+        const instructionsElement = document.getElementById('instructions');
+        const loadingScreen = document.getElementById('loading-screen');
+        const notSupportedScreen = document.getElementById('not-supported');
+        const permissionDeniedScreen = document.getElementById('permission-denied');
+        const ringControls = document.getElementById('ring-controls');
+        const rotateButton = document.getElementById('rotate-button');
+        const resizeButton = document.getElementById('resize-button');
         
-        // Hide loading message once the page is fully loaded
-        window.addEventListener('load', () => {
-            loadingElement.style.display = 'none';
-        });
-        
-        // Check if WebXR is supported
-        if ('xr' in navigator) {
-            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                if (!supported) {
-                    arNotSupportedElement.style.display = 'flex';
-                    startButton.disabled = true;
-                    startButton.style.backgroundColor = '#cccccc';
-                }
-            });
-        } else {
-            arNotSupportedElement.style.display = 'flex';
-            startButton.disabled = true;
-            startButton.style.backgroundColor = '#cccccc';
-        }
-        
-        // Initialize the AR session when button is clicked
-        startButton.addEventListener('click', initAR);
-        
-        function initAR() {
-            // Initialize Three.js
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            container.appendChild(renderer.domElement);
+        // Check device capabilities
+        function checkCapabilities() {
+            // iOS devices detect
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
             
-            // Create scene
-            scene = new THREE.Scene();
-            
-            // Create camera
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-            
-            // Add lighting
-            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
-            light.position.set(0, 1, 0);
-            scene.add(light);
-            
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(0, 5, 0);
-            scene.add(directionalLight);
-            
-            // Create the ring model
-            createRingModel();
-            
-            // Create reticle for placement
-            createReticle();
-            
-            // Set up the AR session
-            const sessionInit = { requiredFeatures: ['hit-test'] };
-            
-            navigator.xr.requestSession('immersive-ar', sessionInit).then((session) => {
-                startButton.style.display = 'none';
-                
-                session.addEventListener('end', () => {
-                    startButton.style.display = 'block';
-                });
-                
-                renderer.xr.setReferenceSpaceType('local');
-                renderer.xr.setSession(session);
-                
-                // Set up the controller for interaction
-                controller = renderer.xr.getController(0);
-                controller.addEventListener('select', onSelect);
-                scene.add(controller);
-                
-                // Start the AR experience
-                animate();
-            }).catch(error => {
-                console.error('Error starting AR session:', error);
-                arNotSupportedElement.style.display = 'flex';
-            });
-        }
-        
-        function createRingModel() {
-            // Create a simple gold ring model
-            const ringGeometry = new THREE.TorusGeometry(0.008, 0.002, 16, 32);
-            const ringMaterial = new THREE.MeshStandardMaterial({
-                color: 0xffd700,
-                metalness: 1.0,
-                roughness: 0.2,
-            });
-            
-            ringModel = new THREE.Mesh(ringGeometry, ringMaterial);
-            ringModel.rotation.x = Math.PI / 2; // Rotate to fit on finger
-            ringModel.visible = false;
-            scene.add(ringModel);
-        }
-        
-        function createReticle() {
-            // Create a reticle to show where the ring will be placed
-            const reticleGeometry = new THREE.RingGeometry(0.015, 0.02, 32);
-            const reticleMaterial = new THREE.MeshBasicMaterial({
-                color: 0xffffff,
-                opacity: 0.8,
-                transparent: true
-            });
-            
-            reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
-            reticle.matrixAutoUpdate = false;
-            reticle.visible = false;
-            scene.add(reticle);
-        }
-        
-        function onSelect() {
-            if (reticle.visible) {
-                if (!isRingPlaced) {
-                    // Position the ring at the reticle location
-                    ringModel.position.setFromMatrixPosition(reticle.matrix);
-                    ringModel.visible = true;
-                    isRingPlaced = true;
-                    
-                    // Change instructions once ring is placed
-                    instructions.textContent = "Ring placed! Move closer to see details.";
-                    
-                    // Hide reticle after placement
-                    reticle.visible = false;
-                } else {
-                    // Allow repositioning
-                    ringModel.position.setFromMatrixPosition(reticle.matrix);
-                }
+            // Simple feature detection for AR support
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                return true;
+            } else {
+                return false;
             }
         }
         
-        function animate() {
-            renderer.setAnimationLoop(render);
+        // Initialize application
+        function init() {
+            if (!checkCapabilities()) {
+                loadingScreen.style.display = 'none';
+                notSupportedScreen.style.display = 'flex';
+                return;
+            }
+            
+            // Set up Three.js scene
+            scene = new THREE.Scene();
+            
+            // Set up camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+            
+            // Set up renderer
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas,
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(0, 10, 10);
+            scene.add(directionalLight);
+            
+            // Create ring model
+            createRing();
+            
+            // Create finger model (for positioning reference)
+            createFinger();
+            
+            // Set up video background
+            setupVideoBackground();
+            
+            // Event listeners
+            startButton.addEventListener('click', startAR);
+            canvas.addEventListener('click', handleCanvasClick);
+            rotateButton.addEventListener('click', () => {
+                isRotating = true;
+                isResizing = false;
+                instructionsElement.textContent = 'Drag left or right to rotate the ring';
+            });
+            resizeButton.addEventListener('click', () => {
+                isResizing = true;
+                isRotating = false;
+                instructionsElement.textContent = 'Drag up or down to resize the ring';
+            });
+            
+            // Touch/mouse events for ring manipulation
+            canvas.addEventListener('touchmove', handleTouchMove);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('touchend', endManipulation);
+            canvas.addEventListener('mouseup', endManipulation);
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start rendering loop
+            animate();
+            
+            // Hide loading screen
+            loadingScreen.style.display = 'none';
         }
         
-        function render(timestamp, frame) {
-            if (frame) {
-                const referenceSpace = renderer.xr.getReferenceSpace();
-                const session = renderer.xr.getSession();
-                
-                if (session && !isRingPlaced) {
-                    // Only do hit testing if the ring hasn't been placed yet
-                    session.requestReferenceSpace('viewer').then((viewerReferenceSpace) => {
-                        session.requestHitTestSource({ space: viewerReferenceSpace }).then((hitTestSource) => {
-                            const hitTestResults = frame.getHitTestResults(hitTestSource);
-                            
-                            if (hitTestResults.length > 0) {
-                                const hit = hitTestResults[0];
-                                const pose = hit.getPose(referenceSpace);
-                                
-                                if (pose) {
-                                    reticle.visible = true;
-                                    reticle.matrix.fromArray(pose.transform.matrix);
-                                }
-                            } else {
-                                reticle.visible = false;
-                            }
-                            
-                            hitTestSource.cancel();
-                        });
+        // Create gold ring
+        function createRing() {
+            const torusGeometry = new THREE.TorusGeometry(ringSize, ringSize / 4, 16, 32);
+            const goldMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFFD700,
+                metalness: 1,
+                roughness: 0.3,
+                emissive: 0x222200,
+                emissiveIntensity: 0.2
+            });
+            
+            ring = new THREE.Mesh(torusGeometry, goldMaterial);
+            ring.rotation.x = Math.PI / 2; // Initial orientation
+            ring.visible = false;
+            scene.add(ring);
+        }
+        
+        // Create simplified finger model
+        function createFinger() {
+            const fingerGeometry = new THREE.CylinderGeometry(0.02, 0.018, 0.1, 32);
+            const fingerMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffcbb3,
+                transparent: true,
+                opacity: 0.2
+            });
+            
+            finger = new THREE.Mesh(fingerGeometry, fingerMaterial);
+            finger.rotation.x = Math.PI / 2;
+            finger.visible = false;
+            scene.add(finger);
+        }
+        
+        // Set up video background
+        function setupVideoBackground() {
+            videoElement = document.createElement('video');
+            videoElement.setAttribute('autoplay', '');
+            videoElement.setAttribute('muted', '');
+            videoElement.setAttribute('playsinline', '');
+            videoElement.style.display = 'none';
+            
+            document.body.appendChild(videoElement);
+        }
+        
+        // Start AR experience
+        function startAR() {
+            startButton.style.display = 'none';
+            
+            // Get user camera
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                    .then(function(stream) {
+                        videoElement.srcObject = stream;
+                        videoElement.play();
+                        
+                        // Create video texture
+                        const videoTexture = new THREE.VideoTexture(videoElement);
+                        scene.background = videoTexture;
+                        
+                        // Update instructions
+                        instructionsElement.textContent = 'Point at your finger and tap to place the ring';
+                        
+                        arReady = true;
+                    })
+                    .catch(function(error) {
+                        console.error('Camera error:', error);
+                        permissionDeniedScreen.style.display = 'flex';
                     });
-                }
+            }
+        }
+        
+        // Handle canvas click for ring placement
+        function handleCanvasClick(event) {
+            if (!arReady) return;
+            
+            if (!ringPlaced) {
+                // Place ring in front of camera
+                ring.position.set(fingerPosition.x, fingerPosition.y, fingerPosition.z);
+                finger.position.set(fingerPosition.x, fingerPosition.y, fingerPosition.z);
+                
+                ring.visible = true;
+                finger.visible = true;
+                
+                ringPlaced = true;
+                
+                // Update UI
+                instructionsElement.textContent = 'Move your device to adjust ring position';
+                ringControls.style.display = 'flex';
+            }
+        }
+        
+        // Handle touch/mouse movement for ring manipulation
+        function handleTouchMove(event) {
+            if (!ringPlaced) return;
+            
+            event.preventDefault();
+            
+            const touch = event.touches[0];
+            manipulateRing(touch.clientX, touch.clientY);
+        }
+        
+        function handleMouseMove(event) {
+            if (!ringPlaced || (event.buttons !== 1)) return;
+            
+            manipulateRing(event.clientX, event.clientY);
+        }
+        
+        function manipulateRing(clientX, clientY) {
+            const movementX = (clientX / window.innerWidth) * 2 - 1;
+            const movementY = (clientY / window.innerHeight) * 2 - 1;
+            
+            if (isRotating) {
+                // Rotate ring
+                ringRotation += movementX * 0.1;
+                ring.rotation.y = ringRotation;
+            } else if (isResizing) {
+                // Resize ring
+                ringSize = Math.max(0.01, ringSize + movementY * 0.001);
+                updateRingSize();
+            } else {
+                // Move ring
+                ring.position.x = fingerPosition.x + movementX * 0.5;
+                ring.position.y = fingerPosition.y - movementY * 0.5;
+                finger.position.x = ring.position.x;
+                finger.position.y = ring.position.y;
+            }
+        }
+        
+        function endManipulation() {
+            isRotating = false;
+            isResizing = false;
+            if (ringPlaced) {
+                instructionsElement.textContent = 'Use buttons below to adjust the ring';
+            }
+        }
+        
+        // Update ring size
+        function updateRingSize() {
+            scene.remove(ring);
+            const torusGeometry = new THREE.TorusGeometry(ringSize, ringSize / 4, 16, 32);
+            ring.geometry.dispose();
+            ring.geometry = torusGeometry;
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (ring.visible) {
+                // Add slight animation to make the ring feel more alive
+                ring.rotation.z += 0.002;
             }
             
             renderer.render(scene, camera);
         }
         
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        // Initialize the application
+        window.onload = init;
     </script>
 </body>
 </html>
