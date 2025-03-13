@@ -103,6 +103,17 @@
             }
         }
 
+        // Check device capabilities
+        function checkCapabilities() {
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const isAndroid = /Android/.test(navigator.userAgent);
+            
+            if ((isIOS || isAndroid) && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                return true;
+            }
+            return false;
+        }
+
         // Initialize application
         function init() {
             if (!checkCapabilities()) {
@@ -247,6 +258,9 @@
                         console.error('Camera error:', error);
                         permissionDeniedScreen.style.display = 'flex';
                     });
+            } else {
+                console.error('getUserMedia not supported');
+                permissionDeniedScreen.style.display = 'flex';
             }
         }
         
