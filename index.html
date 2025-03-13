@@ -167,15 +167,13 @@
         
         // Check device capabilities
         function checkCapabilities() {
-            // iOS devices detect
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const isAndroid = /Android/.test(navigator.userAgent);
             
-            // Simple feature detection for AR support
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            if ((isIOS || isAndroid) && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 return true;
-            } else {
-                return false;
             }
+            return false;
         }
         
         // Initialize application
@@ -234,7 +232,7 @@
             });
             
             // Touch/mouse events for ring manipulation
-            canvas.addEventListener('touchmove', handleTouchMove);
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
             canvas.addEventListener('mousemove', handleMouseMove);
             canvas.addEventListener('touchend', endManipulation);
             canvas.addEventListener('mouseup', endManipulation);
@@ -366,7 +364,8 @@
             } else if (isResizing) {
                 // Resize ring
                 ringSize = Math.max(0.01, ringSize + movementY * 0.001);
-                updateRingSize();
+                ring.geometry.dispose();
+                ring.geometry = new THREE.TorusGeometry(ringSize, ringSize / 4, 16, 32);
             } else {
                 // Move ring
                 ring.position.x = fingerPosition.x + movementX * 0.5;
@@ -382,14 +381,6 @@
             if (ringPlaced) {
                 instructionsElement.textContent = 'Use buttons below to adjust the ring';
             }
-        }
-        
-        // Update ring size
-        function updateRingSize() {
-            scene.remove(ring);
-            const torusGeometry = new THREE.TorusGeometry(ringSize, ringSize / 4, 16, 32);
-            ring.geometry.dispose();
-            ring.geometry = torusGeometry;
         }
         
         // Handle window resize
