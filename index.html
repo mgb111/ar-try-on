@@ -3,483 +3,281 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Try-On Demo with Face Detection</title>
+    <title>AR Ring Try-On</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            font-family: Arial, sans-serif;
             overflow: hidden;
+            font-family: Arial, sans-serif;
         }
+        
         #container {
-            position: absolute;
-            top: 0;
-            left: 0;
+            position: relative;
             width: 100%;
-            height: 100%;
+            height: 100vh;
         }
-        #video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* Mirror the video */
-        }
-        #canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-        #ui {
+        
+        #startButton {
             position: absolute;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        button {
+            padding: 12px 24px;
             background-color: #4285f4;
-            border: none;
             color: white;
-            padding: 15px 32px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
+            border: none;
+            border-radius: 4px;
             font-size: 16px;
-            margin: 4px 2px;
             cursor: pointer;
-            border-radius: 8px;
+            z-index: 100;
         }
-        #itemSelector {
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 8px;
-            background-color: white;
-            border: 1px solid #ddd;
-        }
-        #status {
+        
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
             background-color: rgba(0, 0, 0, 0.7);
             color: white;
             padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 10px;
+            font-size: 14px;
+            z-index: 100;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
+            z-index: 200;
+        }
+        
+        #arNotSupported {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
             text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 300;
         }
     </style>
 </head>
 <body>
     <div id="container">
-        <video id="video" playsinline></video>
-        <canvas id="canvas"></canvas>
-    </div>
-    <div id="ui">
-        <div id="status">Loading face detection...</div>
-        <button id="startButton">Start Try-On</button>
-        <select id="itemSelector">
-            <option value="glasses">Glasses</option>
-            <option value="hat">Hat</option>
-            <option value="mask">Face Mask</option>
-        </select>
+        <button id="startButton">Start AR Ring Try-On</button>
+        <div id="instructions">Point your camera at your finger and tap to place the ring</div>
+        <div id="loading">Loading resources...</div>
+        <div id="arNotSupported">
+            <p>Sorry, AR is not supported on your device or browser.</p>
+            <p>Please try using a recent version of Chrome or Safari on a compatible device.</p>
+        </div>
     </div>
 
+    <!-- Load Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/face-api.js/0.22.2/face-api.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+
     <script>
-        // Global variables
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const statusElement = document.getElementById('status');
+        const container = document.getElementById('container');
         const startButton = document.getElementById('startButton');
-        const itemSelector = document.getElementById('itemSelector');
+        const instructions = document.getElementById('instructions');
+        const loadingElement = document.getElementById('loading');
+        const arNotSupportedElement = document.getElementById('arNotSupported');
         
-        let ctx = canvas.getContext('2d');
-        let currentItem = null;
-        let isRunning = false;
-        let faceDetectionNet, faceDetection;
-        let scene, camera, renderer, faceAnchor;
-        let facePositions = {
-            nose: { x: 0, y: 0, z: 0 },
-            leftEye: { x: 0, y: 0, z: 0 },
-            rightEye: { x: 0, y: 0, z: 0 }
-        };
+        let camera, scene, renderer;
+        let controller;
+        let ringModel;
+        let reticle;
+        let isRingPlaced = false;
         
-        // Load models first
-        async function loadModels() {
-            statusElement.textContent = "Loading face detection models...";
-            
-            try {
-                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdnjs.cloudflare.com/ajax/libs/face-api.js/models');
-                await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdnjs.cloudflare.com/ajax/libs/face-api.js/models');
-                
-                statusElement.textContent = "Models loaded. Press Start to begin.";
-                startButton.disabled = false;
-            } catch (e) {
-                statusElement.textContent = `Error loading models: ${e.message}`;
-            }
+        // Hide loading message once the page is fully loaded
+        window.addEventListener('load', () => {
+            loadingElement.style.display = 'none';
+        });
+        
+        // Check if WebXR is supported
+        if ('xr' in navigator) {
+            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                if (!supported) {
+                    arNotSupportedElement.style.display = 'flex';
+                    startButton.disabled = true;
+                    startButton.style.backgroundColor = '#cccccc';
+                }
+            });
+        } else {
+            arNotSupportedElement.style.display = 'flex';
+            startButton.disabled = true;
+            startButton.style.backgroundColor = '#cccccc';
         }
         
-        // Initialize selfie camera
-        async function initCamera() {
-            statusElement.textContent = "Requesting camera access...";
-            
-            try {
-                // Request the front-facing camera specifically
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: "user", // This requests the front/selfie camera
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-                
-                video.srcObject = stream;
-                
-                return new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        video.play();
-                        statusElement.textContent = "Camera initialized!";
-                        resolve();
-                    };
-                });
-            } catch (e) {
-                statusElement.textContent = `Camera error: ${e.message}`;
-                throw e;
-            }
-        }
+        // Initialize the AR session when button is clicked
+        startButton.addEventListener('click', initAR);
         
-        // Initialize the Three.js scene
-        function initScene() {
+        function initAR() {
+            // Initialize Three.js
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+            
             // Create scene
             scene = new THREE.Scene();
             
             // Create camera
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-            camera.position.set(0, 0, 0);
             
-            // Create light
-            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-            light.position.set(0.5, 1, 0.25);
+            // Add lighting
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
+            light.position.set(0, 1, 0);
             scene.add(light);
             
-            // Create renderer
-            renderer = new THREE.WebGLRenderer({ 
-                canvas: canvas,
-                alpha: true 
-            });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(0, 5, 0);
+            scene.add(directionalLight);
             
-            // Create face anchor
-            faceAnchor = new THREE.Group();
-            scene.add(faceAnchor);
+            // Create the ring model
+            createRingModel();
             
-            // Update item based on selection
-            updateItem();
+            // Create reticle for placement
+            createReticle();
             
-            // Handle window resize
-            window.addEventListener('resize', onWindowResize);
-        }
-        
-        // Start face detection and AR try-on
-        async function start() {
-            if (isRunning) return;
+            // Set up the AR session
+            const sessionInit = { requiredFeatures: ['hit-test'] };
             
-            startButton.disabled = true;
-            statusElement.textContent = "Starting...";
-            
-            try {
-                // Initialize camera
-                await initCamera();
+            navigator.xr.requestSession('immersive-ar', sessionInit).then((session) => {
+                startButton.style.display = 'none';
                 
-                // Set canvas dimensions to match video
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                session.addEventListener('end', () => {
+                    startButton.style.display = 'block';
+                });
                 
-                // Initialize Three.js scene
-                initScene();
+                renderer.xr.setReferenceSpaceType('local');
+                renderer.xr.setSession(session);
                 
-                // Start detection and rendering
-                isRunning = true;
-                detectFace();
+                // Set up the controller for interaction
+                controller = renderer.xr.getController(0);
+                controller.addEventListener('select', onSelect);
+                scene.add(controller);
+                
+                // Start the AR experience
                 animate();
-                
-                startButton.textContent = "Running";
-                statusElement.textContent = "Looking for face...";
-                
-                // Enable item selection
-                itemSelector.disabled = false;
-                itemSelector.addEventListener('change', updateItem);
-                
-            } catch (e) {
-                statusElement.textContent = `Error starting: ${e.message}`;
-                startButton.disabled = false;
-            }
+            }).catch(error => {
+                console.error('Error starting AR session:', error);
+                arNotSupportedElement.style.display = 'flex';
+            });
         }
         
-        // Face detection function
-        async function detectFace() {
-            if (!isRunning) return;
-            
-            try {
-                const detections = await faceapi.detectAllFaces(
-                    video, 
-                    new faceapi.TinyFaceDetectorOptions()
-                ).withFaceLandmarks();
-                
-                if (detections.length > 0) {
-                    // Get the first detected face
-                    const face = detections[0];
-                    const landmarks = face.landmarks;
-                    
-                    // Get positions of key features (normalized coordinates)
-                    const noseTip = landmarks.getNose()[4];
-                    const leftEye = landmarks.getLeftEye()[0];
-                    const rightEye = landmarks.getRightEye()[3];
-                    
-                    // Debug face landmarks
-                    // drawFaceLandmarks(face);
-                    
-                    // Update face positions (converting to Three.js coordinate system)
-                    const width = video.videoWidth;
-                    const height = video.videoHeight;
-                    
-                    facePositions.nose = {
-                        x: (noseTip.x / width - 0.5) * 2,
-                        y: -(noseTip.y / height - 0.5) * 2,
-                        z: -0.5
-                    };
-                    
-                    facePositions.leftEye = {
-                        x: (leftEye.x / width - 0.5) * 2,
-                        y: -(leftEye.y / height - 0.5) * 2,
-                        z: -0.5
-                    };
-                    
-                    facePositions.rightEye = {
-                        x: (rightEye.x / width - 0.5) * 2,
-                        y: -(rightEye.y / height - 0.5) * 2,
-                        z: -0.5
-                    };
-                    
-                    // Calculate face width for scaling
-                    const faceWidth = Math.abs(facePositions.leftEye.x - facePositions.rightEye.x);
-                    
-                    // Update face anchor position and scale
-                    faceAnchor.position.set(
-                        facePositions.nose.x,
-                        facePositions.nose.y,
-                        facePositions.nose.z
-                    );
-                    
-                    // Scale based on face width
-                    faceAnchor.scale.set(faceWidth * 2, faceWidth * 2, faceWidth * 2);
-                    
-                    // Calculate rotation based on eye positions
-                    const dx = facePositions.rightEye.x - facePositions.leftEye.x;
-                    const dy = facePositions.rightEye.y - facePositions.leftEye.y;
-                    const angle = Math.atan2(dy, dx);
-                    faceAnchor.rotation.z = angle;
-                    
-                    statusElement.textContent = `Face detected: ${itemSelector.value}`;
-                } else {
-                    statusElement.textContent = "No face detected";
-                }
-            } catch (e) {
-                console.error("Face detection error:", e);
-                statusElement.textContent = "Detection error";
-            }
-            
-            // Continue detection
-            requestAnimationFrame(detectFace);
-        }
-        
-        // Debug function to draw face landmarks
-        function drawFaceLandmarks(face) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw face landmarks
-            faceapi.draw.drawFaceLandmarks(canvas, face);
-        }
-        
-        // Animation loop for Three.js rendering
-        function animate() {
-            if (!isRunning) return;
-            
-            // Render scene
-            renderer.render(scene, camera);
-            
-            requestAnimationFrame(animate);
-        }
-        
-        // Create different try-on items
-        function createGlasses() {
-            const glasses = new THREE.Group();
-            
-            // Frame
-            const frameGeometry = new THREE.BoxGeometry(0.7, 0.1, 0.1);
-            const frameMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-            glasses.add(frame);
-            
-            // Lenses
-            const lensGeometry = new THREE.CircleGeometry(0.15, 32);
-            const lensMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x6699ff, 
-                transparent: true, 
-                opacity: 0.5 
+        function createRingModel() {
+            // Create a simple gold ring model
+            const ringGeometry = new THREE.TorusGeometry(0.008, 0.002, 16, 32);
+            const ringMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffd700,
+                metalness: 1.0,
+                roughness: 0.2,
             });
             
-            const leftLens = new THREE.Mesh(lensGeometry, lensMaterial);
-            leftLens.position.set(-0.18, 0, 0.05);
-            glasses.add(leftLens);
-            
-            const rightLens = new THREE.Mesh(lensGeometry, lensMaterial);
-            rightLens.position.set(0.18, 0, 0.05);
-            glasses.add(rightLens);
-            
-            // Earpieces
-            const earGeometry = new THREE.BoxGeometry(0.02, 0.02, 0.4);
-            const earMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-            
-            const leftEar = new THREE.Mesh(earGeometry, earMaterial);
-            leftEar.position.set(-0.35, 0, -0.15);
-            leftEar.rotation.y = Math.PI / 6;
-            glasses.add(leftEar);
-            
-            const rightEar = new THREE.Mesh(earGeometry, earMaterial);
-            rightEar.position.set(0.35, 0, -0.15);
-            rightEar.rotation.y = -Math.PI / 6;
-            glasses.add(rightEar);
-            
-            // Position for eyes
-            glasses.position.set(0, 0.03, 0);
-            
-            return glasses;
+            ringModel = new THREE.Mesh(ringGeometry, ringMaterial);
+            ringModel.rotation.x = Math.PI / 2; // Rotate to fit on finger
+            ringModel.visible = false;
+            scene.add(ringModel);
         }
         
-        function createHat() {
-            const hat = new THREE.Group();
+        function createReticle() {
+            // Create a reticle to show where the ring will be placed
+            const reticleGeometry = new THREE.RingGeometry(0.015, 0.02, 32);
+            const reticleMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                opacity: 0.8,
+                transparent: true
+            });
             
-            // Brim
-            const brimGeometry = new THREE.CircleGeometry(0.6, 32);
-            const brimMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
-            const brim = new THREE.Mesh(brimGeometry, brimMaterial);
-            brim.rotation.x = -Math.PI / 2;
-            brim.position.set(0, 0.1, 0);
-            hat.add(brim);
-            
-            // Crown
-            const crownGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 32);
-            const crownMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
-            const crown = new THREE.Mesh(crownGeometry, crownMaterial);
-            crown.position.set(0, 0.3, 0);
-            hat.add(crown);
-            
-            // Band
-            const bandGeometry = new THREE.CylinderGeometry(0.41, 0.41, 0.08, 32);
-            const bandMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            const band = new THREE.Mesh(bandGeometry, bandMaterial);
-            band.position.set(0, 0.14, 0);
-            hat.add(band);
-            
-            // Position for head
-            hat.position.set(0, 0.5, 0);
-            
-            return hat;
+            reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+            reticle.matrixAutoUpdate = false;
+            reticle.visible = false;
+            scene.add(reticle);
         }
         
-        function createMask() {
-            const mask = new THREE.Group();
-            
-            // Main mask
-            const maskGeometry = new THREE.BoxGeometry(0.6, 0.3, 0.05);
-            const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            const mainMask = new THREE.Mesh(maskGeometry, maskMaterial);
-            mask.add(mainMask);
-            
-            // Straps
-            const strapGeometry = new THREE.BoxGeometry(0.02, 0.02, 0.8);
-            const strapMaterial = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
-            
-            const leftStrap = new THREE.Mesh(strapGeometry, strapMaterial);
-            leftStrap.position.set(-0.3, 0, -0.36);
-            leftStrap.rotation.y = Math.PI / 8;
-            mask.add(leftStrap);
-            
-            const rightStrap = new THREE.Mesh(strapGeometry, strapMaterial);
-            rightStrap.position.set(0.3, 0, -0.36);
-            rightStrap.rotation.y = -Math.PI / 8;
-            mask.add(rightStrap);
-            
-            // Position for face
-            mask.position.set(0, -0.12, 0.2);
-            
-            return mask;
-        }
-        
-        // Update the displayed item based on selection
-        function updateItem() {
-            const itemType = itemSelector.value;
-            
-            // Remove current item if exists
-            if (currentItem) {
-                faceAnchor.remove(currentItem);
-                currentItem = null;
-            }
-            
-            // Create new item based on selection
-            switch (itemType) {
-                case 'glasses':
-                    currentItem = createGlasses();
-                    break;
-                case 'hat':
-                    currentItem = createHat();
-                    break;
-                case 'mask':
-                    currentItem = createMask();
-                    break;
-            }
-            
-            // Add new item to face anchor
-            if (currentItem) {
-                faceAnchor.add(currentItem);
-                if (isRunning) {
-                    statusElement.textContent = `Trying on: ${itemType}`;
+        function onSelect() {
+            if (reticle.visible) {
+                if (!isRingPlaced) {
+                    // Position the ring at the reticle location
+                    ringModel.position.setFromMatrixPosition(reticle.matrix);
+                    ringModel.visible = true;
+                    isRingPlaced = true;
+                    
+                    // Change instructions once ring is placed
+                    instructions.textContent = "Ring placed! Move closer to see details.";
+                    
+                    // Hide reticle after placement
+                    reticle.visible = false;
+                } else {
+                    // Allow repositioning
+                    ringModel.position.setFromMatrixPosition(reticle.matrix);
                 }
             }
+        }
+        
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+        
+        function render(timestamp, frame) {
+            if (frame) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+                
+                if (session && !isRingPlaced) {
+                    // Only do hit testing if the ring hasn't been placed yet
+                    session.requestReferenceSpace('viewer').then((viewerReferenceSpace) => {
+                        session.requestHitTestSource({ space: viewerReferenceSpace }).then((hitTestSource) => {
+                            const hitTestResults = frame.getHitTestResults(hitTestSource);
+                            
+                            if (hitTestResults.length > 0) {
+                                const hit = hitTestResults[0];
+                                const pose = hit.getPose(referenceSpace);
+                                
+                                if (pose) {
+                                    reticle.visible = true;
+                                    reticle.matrix.fromArray(pose.transform.matrix);
+                                }
+                            } else {
+                                reticle.visible = false;
+                            }
+                            
+                            hitTestSource.cancel();
+                        });
+                    });
+                }
+            }
+            
+            renderer.render(scene, camera);
         }
         
         // Handle window resize
-        function onWindowResize() {
+        window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-        
-        // Initialize app
-        async function init() {
-            // Disable item selector until started
-            itemSelector.disabled = true;
-            
-            // Disable start button until models loaded
-            startButton.disabled = true;
-            
-            // Load face detection models
-            await loadModels();
-            
-            // Set up start button
-            startButton.addEventListener('click', start);
-        }
-        
-        // Start initialization
-        init();
+        });
     </script>
 </body>
 </html>
