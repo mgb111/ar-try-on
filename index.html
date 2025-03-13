@@ -5,112 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>AR Ring Try-On</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
-            touch-action: none;
-        }
-        
-        #ui-container {
-            position: fixed;
-            width: 100%;
-            height: 100%;
-            z-index: 10;
-            pointer-events: none;
-        }
-        
-        #canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
-        
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.7);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            z-index: 100;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        #start-button {
-            position: fixed;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 15px 30px;
-            background-color: #4285f4;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            z-index: 20;
-            pointer-events: auto;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        }
-        
-        #instructions {
-            position: fixed;
-            top: 20px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            background-color: rgba(0,0,0,0.6);
-            color: white;
-            padding: 12px;
-            font-size: 16px;
-            z-index: 20;
-        }
-        
-        #ring-controls {
-            position: fixed;
-            bottom: 100px;
-            left: 0;
-            right: 0;
-            display: none;
-            justify-content: center;
-            gap: 10px;
-            z-index: 20;
-        }
-        
-        .control-button {
-            padding: 10px 20px;
-            background-color: rgba(0,0,0,0.6);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 14px;
-            cursor: pointer;
-            pointer-events: auto;
-        }
+        /* Your existing CSS styles */
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
     
     <div id="ui-container">
-        <div id="instructions">Point camera at your finger and tap to place the ring</div>
+        <div id="instructions">Point camera at your hand to place the ring</div>
         <button id="start-button">Try Ring On</button>
         
         <div id="ring-controls">
@@ -138,8 +40,10 @@
 
     <!-- Load libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsartoolkit5/artoolkit.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     
     <script>
         // Main variables
@@ -165,17 +69,40 @@
         const rotateButton = document.getElementById('rotate-button');
         const resizeButton = document.getElementById('resize-button');
         
-        // Check device capabilities
-        function checkCapabilities() {
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-            const isAndroid = /Android/.test(navigator.userAgent);
-            
-            if ((isIOS || isAndroid) && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                return true;
-            }
-            return false;
+        // MediaPipe Hands setup
+        let hands;
+        let detectedFingerTip = null;
+
+        function setupHandDetection() {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onHandResults);
         }
-        
+
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                // Get the tip of the index finger (landmark 8)
+                const indexFingerTip = landmarks[8];
+                detectedFingerTip = {
+                    x: indexFingerTip.x * 2 - 1, // Normalize to [-1, 1]
+                    y: -(indexFingerTip.y * 2 - 1), // Flip Y axis
+                    z: -0.15 // Fixed depth for now
+                };
+            } else {
+                detectedFingerTip = null;
+            }
+        }
+
         // Initialize application
         function init() {
             if (!checkCapabilities()) {
@@ -217,9 +144,11 @@
             // Set up video background
             setupVideoBackground();
             
+            // Set up hand detection
+            setupHandDetection();
+            
             // Event listeners
             startButton.addEventListener('click', startAR);
-            canvas.addEventListener('click', handleCanvasClick);
             rotateButton.addEventListener('click', () => {
                 isRotating = true;
                 isResizing = false;
@@ -230,12 +159,6 @@
                 isRotating = false;
                 instructionsElement.textContent = 'Drag up or down to resize the ring';
             });
-            
-            // Touch/mouse events for ring manipulation
-            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-            canvas.addEventListener('mousemove', handleMouseMove);
-            canvas.addEventListener('touchend', endManipulation);
-            canvas.addEventListener('mouseup', endManipulation);
             
             // Handle window resize
             window.addEventListener('resize', onWindowResize);
@@ -305,8 +228,18 @@
                         const videoTexture = new THREE.VideoTexture(videoElement);
                         scene.background = videoTexture;
                         
+                        // Start hand detection
+                        const camera = new Camera(videoElement, {
+                            onFrame: async () => {
+                                await hands.send({ image: videoElement });
+                            },
+                            width: 640,
+                            height: 480
+                        });
+                        camera.start();
+                        
                         // Update instructions
-                        instructionsElement.textContent = 'Point at your finger and tap to place the ring';
+                        instructionsElement.textContent = 'Point at your finger to place the ring';
                         
                         arReady = true;
                     })
@@ -317,14 +250,14 @@
             }
         }
         
-        // Handle canvas click for ring placement
-        function handleCanvasClick(event) {
-            if (!arReady) return;
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
             
-            if (!ringPlaced) {
-                // Place ring in front of camera
-                ring.position.set(fingerPosition.x, fingerPosition.y, fingerPosition.z);
-                finger.position.set(fingerPosition.x, fingerPosition.y, fingerPosition.z);
+            if (detectedFingerTip && !ringPlaced) {
+                // Place ring on the detected finger tip
+                ring.position.set(detectedFingerTip.x, detectedFingerTip.y, detectedFingerTip.z);
+                finger.position.set(detectedFingerTip.x, detectedFingerTip.y, detectedFingerTip.z);
                 
                 ring.visible = true;
                 finger.visible = true;
@@ -332,67 +265,9 @@
                 ringPlaced = true;
                 
                 // Update UI
-                instructionsElement.textContent = 'Move your device to adjust ring position';
+                instructionsElement.textContent = 'Move your hand to adjust ring position';
                 ringControls.style.display = 'flex';
             }
-        }
-        
-        // Handle touch/mouse movement for ring manipulation
-        function handleTouchMove(event) {
-            if (!ringPlaced) return;
-            
-            event.preventDefault();
-            
-            const touch = event.touches[0];
-            manipulateRing(touch.clientX, touch.clientY);
-        }
-        
-        function handleMouseMove(event) {
-            if (!ringPlaced || (event.buttons !== 1)) return;
-            
-            manipulateRing(event.clientX, event.clientY);
-        }
-        
-        function manipulateRing(clientX, clientY) {
-            const movementX = (clientX / window.innerWidth) * 2 - 1;
-            const movementY = (clientY / window.innerHeight) * 2 - 1;
-            
-            if (isRotating) {
-                // Rotate ring
-                ringRotation += movementX * 0.1;
-                ring.rotation.y = ringRotation;
-            } else if (isResizing) {
-                // Resize ring
-                ringSize = Math.max(0.01, ringSize + movementY * 0.001);
-                ring.geometry.dispose();
-                ring.geometry = new THREE.TorusGeometry(ringSize, ringSize / 4, 16, 32);
-            } else {
-                // Move ring
-                ring.position.x = fingerPosition.x + movementX * 0.5;
-                ring.position.y = fingerPosition.y - movementY * 0.5;
-                finger.position.x = ring.position.x;
-                finger.position.y = ring.position.y;
-            }
-        }
-        
-        function endManipulation() {
-            isRotating = false;
-            isResizing = false;
-            if (ringPlaced) {
-                instructionsElement.textContent = 'Use buttons below to adjust the ring';
-            }
-        }
-        
-        // Handle window resize
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-        
-        // Animation loop
-        function animate() {
-            requestAnimationFrame(animate);
             
             if (ring.visible) {
                 // Add slight animation to make the ring feel more alive
