@@ -1,115 +1,334 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>AR Ring Try-On</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
-    #ar-canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Try-On Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        button {
+            background-color: #4285f4;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+        #itemSelector {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: white;
+            border: 1px solid #ddd;
+        }
+        #status {
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
-  <canvas id="ar-canvas"></canvas>
+    <div id="container"></div>
+    <div id="ui">
+        <div id="status">Ready to start AR experience</div>
+        <button id="startAR">Start AR Try-On</button>
+        <select id="itemSelector">
+            <option value="glasses">Glasses</option>
+            <option value="hat">Hat</option>
+            <option value="mask">Face Mask</option>
+        </select>
+    </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@webxr-input-profiles/motion-controllers/dist/motion-controllers.umd.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@webxr-input-profiles/motion-controllers/dist/motion-controllers.umd.js"></script>
-  <script type="module">
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
-    import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/XRControllerModelFactory.js';
-    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/GLTFLoader.js';
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Global variables
+        let container, camera, scene, renderer, faceAnchor;
+        let currentItem = null;
+        let isAR = false;
+        const statusElement = document.getElementById('status');
+        const startARButton = document.getElementById('startAR');
+        const itemSelector = document.getElementById('itemSelector');
 
-    let camera, scene, renderer, controller, ring;
-
-    init();
-    animate();
-
-    function init() {
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
-      document.body.appendChild(renderer.domElement);
-
-      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hand-tracking'] }));
-
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-      scene.add(light);
-
-      controller = renderer.xr.getController(0);
-      controller.addEventListener('selectstart', onSelectStart);
-      controller.addEventListener('selectend', onSelectEnd);
-      scene.add(controller);
-
-      const controllerModelFactory = new XRControllerModelFactory();
-      const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-      const line = new THREE.Line(geometry);
-      line.scale.z = 0;
-      controller.add(line);
-
-      const loader = new GLTFLoader();
-      loader.load('https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/SimpleRing/glTF-Binary/SimpleRing.glb', function (gltf) {
-        ring = gltf.scene;
-        ring.scale.set(0.005, 0.005, 0.005); // Adjusted scale
-        scene.add(ring);
-        ring.visible = false;
-      }, undefined, function (error) {
-        console.error("An error happened loading the ring:", error);
-      });
-
-      window.addEventListener('resize', onWindowResize);
-    }
-
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    function onSelectStart() {
-      this.userData.isSelecting = true;
-    }
-
-    function onSelectEnd() {
-      this.userData.isSelecting = false;
-    }
-
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      if (frame) {
-        const hand = renderer.xr.getHand(0);
-
-        if (hand) {
-          const fingerTip = hand.getObjectByName('index-finger-tip');
-
-          if (fingerTip && ring) {
-            ring.position.copy(fingerTip.getWorldPosition(new THREE.Vector3()));
-            ring.quaternion.copy(fingerTip.getWorldQuaternion(new THREE.Quaternion()));
-            ring.visible = true;
-          } else if (ring) {
-            ring.visible = false;
-          }
-        } else if (ring) {
-          ring.visible = false;
+        // Initialize the scene
+        function init() {
+            container = document.getElementById('container');
+            
+            // Create scene
+            scene = new THREE.Scene();
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+            
+            // Create light
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+            light.position.set(0.5, 1, 0.25);
+            scene.add(light);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+            
+            // Check WebXR support for AR
+            if ('xr' in navigator) {
+                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                    if (supported) {
+                        startARButton.addEventListener('click', startAR);
+                        statusElement.textContent = 'AR is supported on your device. Press "Start AR Try-On" to begin.';
+                    } else {
+                        statusElement.textContent = 'AR is not supported on your device.';
+                        startARButton.disabled = true;
+                    }
+                });
+            } else {
+                statusElement.textContent = 'WebXR not available on your browser.';
+                startARButton.disabled = true;
+            }
+            
+            // Item selection change event
+            itemSelector.addEventListener('change', updateItem);
+            
+            // Window resize handler
+            window.addEventListener('resize', onWindowResize);
         }
-      }
-      renderer.render(scene, camera);
-    }
-  </script>
+        
+        // Start AR session
+        function startAR() {
+            if (isAR) return;
+            
+            navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['hit-test', 'dom-overlay'],
+                domOverlay: { root: document.getElementById('ui') }
+            }).then(onSessionStarted, (error) => {
+                statusElement.textContent = `Error starting AR: ${error}`;
+            });
+        }
+        
+        // When AR session is started
+        function onSessionStarted(session) {
+            isAR = true;
+            session.addEventListener('end', onSessionEnded);
+            
+            renderer.xr.setReferenceSpaceType('local');
+            renderer.xr.setSession(session);
+            
+            statusElement.textContent = 'Looking for face...';
+            
+            // Create a face anchor (simplified - in a full app you'd use face tracking)
+            createFaceAnchor();
+            
+            // Update the current selected item
+            updateItem();
+            
+            // Start rendering loop
+            renderer.setAnimationLoop(render);
+        }
+        
+        // When AR session is ended
+        function onSessionEnded() {
+            isAR = false;
+            statusElement.textContent = 'AR session ended.';
+            renderer.setAnimationLoop(null);
+            startARButton.textContent = 'Restart AR Try-On';
+        }
+        
+        // Create a face anchor point (simplified)
+        function createFaceAnchor() {
+            faceAnchor = new THREE.Group();
+            scene.add(faceAnchor);
+            
+            // In a real face tracking app, this would be updated with actual face position
+            faceAnchor.position.set(0, 0, -0.5);
+        }
+        
+        // Create different try-on items
+        function createGlasses() {
+            const glasses = new THREE.Group();
+            
+            // Frame
+            const frameGeometry = new THREE.BoxGeometry(0.14, 0.02, 0.02);
+            const frameMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+            glasses.add(frame);
+            
+            // Lenses
+            const lensGeometry = new THREE.CircleGeometry(0.03, 32);
+            const lensMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x6699ff, 
+                transparent: true, 
+                opacity: 0.5 
+            });
+            
+            const leftLens = new THREE.Mesh(lensGeometry, lensMaterial);
+            leftLens.position.set(-0.035, 0, 0.01);
+            glasses.add(leftLens);
+            
+            const rightLens = new THREE.Mesh(lensGeometry, lensMaterial);
+            rightLens.position.set(0.035, 0, 0.01);
+            glasses.add(rightLens);
+            
+            // Earpieces
+            const earGeometry = new THREE.BoxGeometry(0.002, 0.002, 0.1);
+            const earMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            
+            const leftEar = new THREE.Mesh(earGeometry, earMaterial);
+            leftEar.position.set(-0.07, 0, -0.04);
+            leftEar.rotation.y = Math.PI / 6;
+            glasses.add(leftEar);
+            
+            const rightEar = new THREE.Mesh(earGeometry, earMaterial);
+            rightEar.position.set(0.07, 0, -0.04);
+            rightEar.rotation.y = -Math.PI / 6;
+            glasses.add(rightEar);
+            
+            // Position for face
+            glasses.position.set(0, 0, 0);
+            
+            return glasses;
+        }
+        
+        function createHat() {
+            const hat = new THREE.Group();
+            
+            // Brim
+            const brimGeometry = new THREE.CircleGeometry(0.15, 32);
+            const brimMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+            const brim = new THREE.Mesh(brimGeometry, brimMaterial);
+            brim.rotation.x = -Math.PI / 2;
+            brim.position.set(0, 0.1, 0);
+            hat.add(brim);
+            
+            // Crown
+            const crownGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.1, 32);
+            const crownMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+            const crown = new THREE.Mesh(crownGeometry, crownMaterial);
+            crown.position.set(0, 0.15, 0);
+            hat.add(crown);
+            
+            // Band
+            const bandGeometry = new THREE.CylinderGeometry(0.101, 0.101, 0.02, 32);
+            const bandMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const band = new THREE.Mesh(bandGeometry, bandMaterial);
+            band.position.set(0, 0.13, 0);
+            hat.add(band);
+            
+            // Position for head
+            hat.position.set(0, 0.12, 0);
+            
+            return hat;
+        }
+        
+        function createMask() {
+            const mask = new THREE.Group();
+            
+            // Main mask
+            const maskGeometry = new THREE.BoxGeometry(0.12, 0.08, 0.02);
+            const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const mainMask = new THREE.Mesh(maskGeometry, maskMaterial);
+            mask.add(mainMask);
+            
+            // Straps
+            const strapGeometry = new THREE.BoxGeometry(0.005, 0.005, 0.2);
+            const strapMaterial = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+            
+            const leftStrap = new THREE.Mesh(strapGeometry, strapMaterial);
+            leftStrap.position.set(-0.06, 0, -0.09);
+            leftStrap.rotation.y = Math.PI / 8;
+            mask.add(leftStrap);
+            
+            const rightStrap = new THREE.Mesh(strapGeometry, strapMaterial);
+            rightStrap.position.set(0.06, 0, -0.09);
+            rightStrap.rotation.y = -Math.PI / 8;
+            mask.add(rightStrap);
+            
+            // Position for face
+            mask.position.set(0, -0.03, 0.05);
+            
+            return mask;
+        }
+        
+        // Update the displayed item based on selection
+        function updateItem() {
+            const itemType = itemSelector.value;
+            
+            // Remove current item if exists
+            if (currentItem) {
+                faceAnchor.remove(currentItem);
+                currentItem = null;
+            }
+            
+            // Create new item based on selection
+            switch (itemType) {
+                case 'glasses':
+                    currentItem = createGlasses();
+                    break;
+                case 'hat':
+                    currentItem = createHat();
+                    break;
+                case 'mask':
+                    currentItem = createMask();
+                    break;
+            }
+            
+            // Add new item to face anchor
+            if (currentItem) {
+                faceAnchor.add(currentItem);
+                statusElement.textContent = `Trying on: ${itemType}`;
+            }
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Render loop
+        function render(timestamp, frame) {
+            if (isAR && frame) {
+                // In a full face tracking app, you would update the face anchor position here
+                // based on detected face positions from the AR system
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the app
+        init();
+    </script>
 </body>
 </html>
